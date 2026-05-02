@@ -12,6 +12,9 @@ import tempfile
 from pathlib import Path
 from ultralytics import YOLO
 
+import torch
+torch.set_num_threads(1)
+
 app = FastAPI(title="Tooth Segmentation API")
 
 app.add_middleware(
@@ -53,6 +56,12 @@ async def segment(file: UploadFile = File(...)):
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
         raise HTTPException(400, "Could not decode image.")
+    max_dim = 640
+    h, w = img.shape[:2]
+    if max(h, w) > max_dim:
+        scale = max_dim / max(h, w)
+        img = cv2.resize(img, (int(w * scale), int(h * scale)))
+
 
     # Run inference
     m = get_model()
