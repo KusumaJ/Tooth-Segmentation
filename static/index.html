@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DentSeg · Tooth Segmentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  /* ── Reset & Base ─────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0a0c0f;
+    --surface:  #111418;
+    --card:     #181c22;
+    --border:   #252b34;
+    --border2:  #303844;
+    --text:     #e8ecf0;
+    --muted:    #6b7787;
+    --accent:   #00d4aa;
+    --accent2:  #0099ff;
+    --warn:     #ff6b6b;
+    --tooth:    #f0e6d3;
+    --r:        12px;
+    --r2:       8px;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Syne', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Noise grain overlay ─────────────────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+    opacity: 0.025;
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* ── Header ──────────────────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 40px;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+    background: rgba(10,12,15,0.85);
+    backdrop-filter: blur(16px);
+    z-index: 100;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+  }
+
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .logo-text {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--text);
+  }
+
+  .logo-text span { color: var(--accent); }
+
+  .badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    border: 1px solid var(--border2);
+    padding: 4px 10px;
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── Main layout ─────────────────────────────────────────────────── */
+  main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 48px 40px 80px;
+  }
+
+  /* ── Hero ────────────────────────────────────────────────────────── */
+  .hero {
+    text-align: center;
+    margin-bottom: 56px;
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .hero-tag {
+    display: inline-block;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid rgba(0,212,170,0.3);
+    background: rgba(0,212,170,0.07);
+    padding: 6px 16px;
+    border-radius: 20px;
+    margin-bottom: 24px;
+  }
+
+  .hero h1 {
+    font-size: clamp(32px, 5vw, 52px);
+    font-weight: 800;
+    letter-spacing: -1.5px;
+    line-height: 1.1;
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, #fff 0%, #8899aa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero p {
+    font-family: 'DM Mono', monospace;
+    font-size: 14px;
+    color: var(--muted);
+    max-width: 480px;
+    margin: 0 auto;
+    line-height: 1.7;
+  }
+
+  /* ── Upload zone ─────────────────────────────────────────────────── */
+  .upload-section {
+    animation: fadeUp 0.6s 0.1s ease both;
+  }
+
+  .drop-zone {
+    border: 2px dashed var(--border2);
+    border-radius: var(--r);
+    padding: 64px 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    background: var(--surface);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .drop-zone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 0%, rgba(0,212,170,0.06) 0%, transparent 60%);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(0,212,170,0.04);
+  }
+
+  .drop-zone:hover::before, .drop-zone.dragover::before { opacity: 1; }
+
+  .drop-icon {
+    font-size: 48px;
+    margin-bottom: 20px;
+    display: block;
+    filter: grayscale(0.3);
+  }
+
+  .drop-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+
+  .drop-sub {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 24px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 28px;
+    border-radius: var(--r2);
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    text-decoration: none;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+  }
+
+  .btn-primary:hover {
+    background: #00f0c0;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(0,212,170,0.3);
+  }
+
+  .btn-ghost {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border2);
+  }
+
+  .btn-ghost:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  #fileInput { display: none; }
+
+  /* ── Preview strip (pre-submit) ──────────────────────────────────── */
+  .preview-strip {
+    margin-top: 20px;
+    display: none;
+    align-items: center;
+    gap: 16px;
+    background: var(--card);
+    border: 1px solid var(--border2);
+    border-radius: var(--r);
+    padding: 16px 20px;
+  }
+
+  .preview-strip.visible { display: flex; }
+
+  .preview-thumb {
+    width: 72px; height: 72px;
+    object-fit: cover;
+    border-radius: var(--r2);
+    flex-shrink: 0;
+    border: 1px solid var(--border2);
+  }
+
+  .preview-info { flex: 1; min-width: 0; }
+
+  .preview-name {
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 4px;
+  }
+
+  .preview-meta {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* ── Loading state ───────────────────────────────────────────────── */
+  .loader {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    padding: 48px;
+    gap: 20px;
+  }
+
+  .loader.visible { display: flex; }
+
+  .spinner-ring {
+    width: 48px; height: 48px;
+    border: 3px solid var(--border2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  .loader-text {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+
+  /* ── Results ─────────────────────────────────────────────────────── */
+  #results { display: none; }
+  #results.visible { display: block; animation: fadeUp 0.5s ease both; }
+
+  .results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .results-title {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  .results-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  /* ── Image comparison ────────────────────────────────────────────── */
+  .image-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 28px;
+  }
+
+  @media (max-width: 700px) { .image-grid { grid-template-columns: 1fr; } }
+
+  .image-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    overflow: hidden;
+  }
+
+  .image-card-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .image-card-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .image-card-label.annotated { color: var(--accent); }
+
+  .image-card img {
+    width: 100%;
+    display: block;
+    max-height: 460px;
+    object-fit: contain;
+    background: #0d1015;
+  }
+
+  /* ── Stats row ───────────────────────────────────────────────────── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  @media (max-width: 600px) { .stats-row { grid-template-columns: 1fr 1fr; } }
+
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 20px 22px;
+  }
+
+  .stat-value {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+
+  .stat-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  /* ── Detection table ─────────────────────────────────────────────── */
+  .detections-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+
+  .detections-card-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .detections-card-header h3 {
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .count-pill {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    background: rgba(0,212,170,0.12);
+    color: var(--accent);
+    border: 1px solid rgba(0,212,170,0.25);
+    padding: 2px 10px;
+    border-radius: 20px;
+  }
+
+  .det-table { width: 100%; border-collapse: collapse; }
+
+  .det-table th {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 10px 20px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,0,0,0.2);
+  }
+
+  .det-table td {
+    padding: 12px 20px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .det-table tr:last-child td { border-bottom: none; }
+
+  .det-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .tooth-id {
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    color: var(--accent);
+    font-size: 13px;
+  }
+
+  .conf-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .conf-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--border2);
+    border-radius: 2px;
+    overflow: hidden;
+    max-width: 80px;
+  }
+
+  .conf-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-radius: 2px;
+    transition: width 0.5s ease;
+  }
+
+  .conf-value {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+    min-width: 36px;
+  }
+
+  .bbox-cell {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* ── Divider ─────────────────────────────────────────────────────── */
+  .divider {
+    text-align: center;
+    margin: 48px 0 36px;
+    position: relative;
+  }
+
+  .divider::before {
+    content: '';
+    position: absolute;
+    top: 50%; left: 0; right: 0;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .divider span {
+    position: relative;
+    background: var(--bg);
+    padding: 0 16px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+
+  /* ── Error state ─────────────────────────────────────────────────── */
+  .error-box {
+    display: none;
+    background: rgba(255,107,107,0.07);
+    border: 1px solid rgba(255,107,107,0.25);
+    border-radius: var(--r);
+    padding: 20px 24px;
+    margin-top: 20px;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--warn);
+  }
+
+  .error-box.visible { display: block; }
+
+  /* ── Footer ──────────────────────────────────────────────────────── */
+  footer {
+    text-align: center;
+    padding: 32px;
+    border-top: 1px solid var(--border);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+
+  /* ── Animations ──────────────────────────────────────────────────── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* ── Overlay compare mode ────────────────────────────────────────── */
+  .compare-toggle {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    background: none;
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .compare-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Responsive padding ──────────────────────────────────────────── */
+  @media (max-width: 600px) {
+    header { padding: 16px 20px; }
+    main   { padding: 32px 20px 60px; }
+    .drop-zone { padding: 48px 24px; }
+    .stats-row { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────────── -->
+<header>
+  <a class="logo" href="#">
+    <div class="logo-icon">🦷</div>
+    <span class="logo-text">Dent<span>Seg</span></span>
+  </a>
+  <span class="badge">YOLO · Tooth Segmentation</span>
+</header>
+
+<!-- ── Main ────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-tag">AI-Powered Analysis</div>
+    <h1>Instant Tooth<br/>Segmentation</h1>
+    <p>Upload a dental X-ray or photograph and receive precise tooth detection and segmentation masks in seconds.</p>
+  </section>
+
+  <!-- Upload -->
+  <section class="upload-section">
+    <div class="drop-zone" id="dropZone">
+      <span class="drop-icon">🦷</span>
+      <div class="drop-title">Drop your image here</div>
+      <div class="drop-sub">JPG, PNG, WebP · up to 20 MB</div>
+      <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Choose File
+      </button>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" />
+
+    <!-- Preview strip -->
+    <div class="preview-strip" id="previewStrip">
+      <img class="preview-thumb" id="previewThumb" src="" alt="" />
+      <div class="preview-info">
+        <div class="preview-name" id="previewName">—</div>
+        <div class="preview-meta" id="previewMeta">—</div>
+      </div>
+      <button class="btn btn-primary" id="analyzeBtn" onclick="runSegmentation()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        Analyse
+      </button>
+      <button class="btn btn-ghost" onclick="resetAll()">Clear</button>
+    </div>
+
+    <!-- Error -->
+    <div class="error-box" id="errorBox"></div>
+  </section>
+
+  <!-- Loader -->
+  <div class="loader" id="loader">
+    <div class="spinner-ring"></div>
+    <div class="loader-text">Running segmentation model…</div>
+  </div>
+
+  <!-- Results -->
+  <div id="results">
+    <div class="divider"><span>Results</span></div>
+
+    <div class="results-header">
+      <div class="results-title">Segmentation Output</div>
+      <div class="results-actions">
+        <button class="btn btn-ghost" onclick="downloadAnnotated()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download
+        </button>
+        <button class="btn btn-ghost" onclick="resetAll()">New Image</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-value" id="statCount">—</div>
+        <div class="stat-label">Teeth Detected</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="statAvgConf">—</div>
+        <div class="stat-label">Avg. Confidence</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="statSize">—</div>
+        <div class="stat-label">Image Resolution</div>
+      </div>
+    </div>
+
+    <!-- Image grid -->
+    <div class="image-grid">
+      <div class="image-card">
+        <div class="image-card-header">
+          <span class="image-card-label">Original</span>
+        </div>
+        <img id="originalImg" src="" alt="Original" />
+      </div>
+      <div class="image-card">
+        <div class="image-card-header">
+          <span class="image-card-label annotated">Annotated</span>
+        </div>
+        <img id="annotatedImg" src="" alt="Annotated" />
+      </div>
+    </div>
+
+    <!-- Detections table -->
+    <div class="detections-card">
+      <div class="detections-card-header">
+        <h3>Detection Details</h3>
+        <span class="count-pill" id="detCountPill">0 instances</span>
+      </div>
+      <table class="det-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Class</th>
+            <th>Confidence</th>
+            <th>Bounding Box</th>
+          </tr>
+        </thead>
+        <tbody id="detectionsTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<footer>DentSeg · YOLO Segmentation Model · Internal Tool</footer>
+
+<script>
+  // ── State ────────────────────────────────────────────────────────────
+  let selectedFile = null;
+  let annotatedDataUrl = null;
+  const API = '';  // empty = same origin; set to e.g. 'http://localhost:8000' for dev
+
+  // ── File input ───────────────────────────────────────────────────────
+  document.getElementById('fileInput').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file) handleFile(file);
+  });
+
+  // ── Drag and drop ────────────────────────────────────────────────────
+  const dz = document.getElementById('dropZone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) handleFile(file);
+  });
+
+  function handleFile(file) {
+    selectedFile = file;
+    hideResults();
+    showPreview(file);
+  }
+
+  function showPreview(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      document.getElementById('previewThumb').src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+    document.getElementById('previewName').textContent = file.name;
+    document.getElementById('previewMeta').textContent =
+      `${(file.size / 1024).toFixed(1)} KB · ${file.type.replace('image/','')}`;
+    document.getElementById('previewStrip').classList.add('visible');
+    document.getElementById('errorBox').classList.remove('visible');
+  }
+
+  // ── Run segmentation ─────────────────────────────────────────────────
+  async function runSegmentation() {
+    if (!selectedFile) return;
+
+    document.getElementById('previewStrip').classList.remove('visible');
+    document.getElementById('loader').classList.add('visible');
+    document.getElementById('errorBox').classList.remove('visible');
+    hideResults();
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      const res = await fetch(`${API}/segment`, { method: 'POST', body: formData });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      showResults(data);
+    } catch (err) {
+      const box = document.getElementById('errorBox');
+      box.textContent = `⚠ ${err.message}`;
+      box.classList.add('visible');
+      document.getElementById('previewStrip').classList.add('visible');
+    } finally {
+      document.getElementById('loader').classList.remove('visible');
+    }
+  }
+
+  // ── Render results ───────────────────────────────────────────────────
+  function showResults(data) {
+    annotatedDataUrl = data.annotated;
+
+    document.getElementById('originalImg').src  = data.original;
+    document.getElementById('annotatedImg').src = data.annotated;
+
+    // Stats
+    document.getElementById('statCount').textContent = data.count;
+    const avgConf = data.detections.length
+      ? (data.detections.reduce((s, d) => s + d.confidence, 0) / data.detections.length).toFixed(1) + '%'
+      : '—';
+    document.getElementById('statAvgConf').textContent = avgConf;
+    document.getElementById('statSize').textContent =
+      `${data.image_size.width}×${data.image_size.height}`;
+
+    // Table
+    document.getElementById('detCountPill').textContent =
+      `${data.count} instance${data.count !== 1 ? 's' : ''}`;
+
+    const tbody = document.getElementById('detectionsTbody');
+    tbody.innerHTML = '';
+
+    if (data.detections.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);font-family:\'DM Mono\',monospace;font-size:12px;padding:24px;">No detections found</td></tr>';
+    } else {
+      data.detections.forEach(d => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="tooth-id">T${String(d.id).padStart(2,'0')}</td>
+          <td>${d.class}</td>
+          <td>
+            <div class="conf-bar-wrap">
+              <div class="conf-bar">
+                <div class="conf-fill" style="width:${d.confidence}%"></div>
+              </div>
+              <span class="conf-value">${d.confidence}%</span>
+            </div>
+          </td>
+          <td class="bbox-cell">[${d.bbox.join(', ')}]</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    document.getElementById('results').classList.add('visible');
+    document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function hideResults() {
+    document.getElementById('results').classList.remove('visible');
+  }
+
+  // ── Download annotated ───────────────────────────────────────────────
+  function downloadAnnotated() {
+    if (!annotatedDataUrl) return;
+    const a = document.createElement('a');
+    a.href = annotatedDataUrl;
+    a.download = `dentseg_${Date.now()}.jpg`;
+    a.click();
+  }
+
+  // ── Reset ────────────────────────────────────────────────────────────
+  function resetAll() {
+    selectedFile = null;
+    annotatedDataUrl = null;
+    document.getElementById('fileInput').value = '';
+    document.getElementById('previewStrip').classList.remove('visible');
+    document.getElementById('errorBox').classList.remove('visible');
+    document.getElementById('loader').classList.remove('visible');
+    hideResults();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+</script>
+</body>
+</html>
